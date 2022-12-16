@@ -234,14 +234,16 @@ added:
  - REPLACEME
 -->
 
+> Stability: 1 - Experimental
+
 * `nameOrChannels` {string|TracingChannel} Channel name or
   object containing all the [TracingChannel Channels][]
 * Returns: {TracingChannel} Collection of channels to trace with
 
-Creates a [`TracingChannel`][] wrapper for the given [TracingChannel Channels][].
-If a name is given, the corresponding tracing channels will be created in the
-form of `tracing:${name}:${eventType}` where `eventType` corresponds to the
-types of [TracingChannel Channels][].
+Creates a [`TracingChannel`][] wrapper for the given
+[TracingChannel Channels][]. If a name is given, the corresponding tracing
+channels will be created in the form of `tracing:${name}:${eventType}` where
+`eventType` corresponds to the types of [TracingChannel Channels][].
 
 ```mjs
 import diagnostics_channel from 'node:diagnostics_channel';
@@ -462,6 +464,8 @@ added:
  - REPLACEME
 -->
 
+> Stability: 1 - Experimental
+
 * `store` {AsyncLocalStorage} The store to which to bind the event data
 * `transform` {Function} Transform the event data before setting the context
 
@@ -504,6 +508,8 @@ added:
  - REPLACEME
 -->
 
+> Stability: 1 - Experimental
+
 * `store` {AsyncLocalStorage} The store to unbind from the channel.
 * Returns: {boolean} `true` if the store was found, `false` otherwise.
 
@@ -540,6 +546,8 @@ channel.unbindStore(store);
 added:
  - REPLACEME
 -->
+
+> Stability: 1 - Experimental
 
 * `data` {any} Message to send to subscribers and bind to stores
 * `fn` {Function} Handler to run within the entered storage context
@@ -592,6 +600,8 @@ added:
  - REPLACEME
 -->
 
+> Stability: 1 - Experimental
+
 The class `TracingChannel` is a collection of [TracingChannel Channels][] which
 together express a trace. It is used to formalize and simplify the process of
 producing tracing events. [`diagnostics_channel.tracingChannel()`][] is used
@@ -605,6 +615,8 @@ creating them dynamically.
 added:
  - REPLACEME
 -->
+
+> Stability: 1 - Experimental
 
 * `subscribers` {Object} Set of [TracingChannel Channels][] subscribers
   * `start` {Function} The [`start` event][] subscriber
@@ -672,13 +684,16 @@ added:
  - REPLACEME
 -->
 
+> Stability: 1 - Experimental
+
 * `subscribers` {Object} Set of [TracingChannel Channels][] subscribers
   * `start` {Function} The [`start` event][] subscriber
   * `end` {Function} The [`end` event][] subscriber
   * `asyncStart` {Function} The [`asyncStart` event][] subscriber
   * `asyncEnd` {Function} The [`asyncEnd` event][] subscriber
   * `error` {Function} The [`error` event][] subscriber
-* Returns: {boolean} `true` if all handlers were successfully unsubscribed, and `false` otherwise.
+* Returns: {boolean} `true` if all handlers were successfully unsubscribed,
+  and `false` otherwise.
 
 Helper to unsubscribe a collection of functions from the corresponding channels.
 This is the same as calling [`channel.unsubscribe(onMessage)`][] on each channel
@@ -739,14 +754,16 @@ added:
  - REPLACEME
 -->
 
+> Stability: 1 - Experimental
+
 * `fn` {Function} Function to wrap a trace around
 * `ctx` {Object} Shared context object to correlate trace events through
 * `thisArg` {any} The receiver to be used for the function call
 * `...args` {any} Optional arguments to pass to the function
 * Returns: {any} The return value of the given function
 
-Trace a synchronous function call. This will always produce `start` and `end` events
-around the execution and may also produce an `error` event if the given
+Trace a synchronous function call. This will always produce `start` and `end`
+events around the execution and may also produce an `error` event if the given
 function throws an error. This will run the given function using
 [`channel.runStores(data, ...)`][] on the `start` channel.
 
@@ -780,6 +797,8 @@ channels.traceSync(() => {
 added:
  - REPLACEME
 -->
+
+> Stability: 1 - Experimental
 
 * `fn` {Function} Promise-returning function to wrap a trace around
 * `ctx` {Object} Shared context object to correlate trace events through
@@ -823,6 +842,8 @@ channels.tracePromise(async () => {
 added:
  - REPLACEME
 -->
+
+> Stability: 1 - Experimental
 
 * `fn` {Function} Promise-returning function to wrap a trace around
 * `position` {number} Zero-indexed argument position of expected callback
@@ -934,10 +955,10 @@ part of the task then throws an error.
 
 * Name: `tracing:${name}:asyncEnd`
 
-The `asyncEnd` event represents the callback of an asynchronous traceable function
-being completed. It's not likely event data will change after the `asyncStart`
-event, however it may be useful for some tracers to see the point where the
-callback completes.
+The `asyncEnd` event represents the callback of an asynchronous traceable
+function being completed. It's not likely event data will change after the
+`asyncStart` event, however it may be useful for some tracers to see the point
+where the callback completes.
 
 #### `error(event)`
 
