@@ -238,7 +238,7 @@ added:
   object containing all the [TracingChannel Channels][]
 * Returns: {TracingChannel} Collection of channels to trace with
 
-Creates a [`TracingChannel`][] wrapper for given [TracingChannel Channels][].
+Creates a [`TracingChannel`][] wrapper for the given [TracingChannel Channels][].
 If a name is given, the corresponding tracing channels will be created in the
 form of `tracing:${name}:${eventType}` where `eventType` corresponds to the
 types of [TracingChannel Channels][].
@@ -504,7 +504,7 @@ added:
  - REPLACEME
 -->
 
-* `store` {AsyncLocalStorage} The store to unbind from the channel
+* `store` {AsyncLocalStorage} The store to unbind from the channel.
 * Returns: {boolean} `true` if the store was found, `false` otherwise.
 
 Remove a message handler previously registered to this channel with
@@ -678,7 +678,7 @@ added:
   * `asyncStart` {Function} The [`asyncStart` event][] subscriber
   * `asyncEnd` {Function} The [`asyncEnd` event][] subscriber
   * `error` {Function} The [`error` event][] subscriber
-* Returns: {boolean} If all handlers were successfully unsubscribed
+* Returns: {boolean} `true` if all handlers were successfully unsubscribed, and `false` otherwise.
 
 Helper to unsubscribe a collection of functions from the corresponding channels.
 This is the same as calling [`channel.unsubscribe(onMessage)`][] on each channel
@@ -745,7 +745,7 @@ added:
 * `...args` {any} Optional arguments to pass to the function
 * Returns: {any} The return value of the given function
 
-Trace a sync function call. This will always produce `start` and `end` events
+Trace a synchronous function call. This will always produce `start` and `end` events
 around the execution and may also produce an `error` event if the given
 function throws an error. This will run the given function using
 [`channel.runStores(data, ...)`][] on the `start` channel.
@@ -934,7 +934,7 @@ part of the task then throws an error.
 
 * Name: `tracing:${name}:asyncEnd`
 
-The `asyncEnd` event represents the callback of an async traceable function
+The `asyncEnd` event represents the callback of an asynchronous traceable function
 being completed. It's not likely event data will change after the `asyncStart`
 event, however it may be useful for some tracers to see the point where the
 callback completes.
