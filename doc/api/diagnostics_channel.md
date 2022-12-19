@@ -467,7 +467,7 @@ added:
 > Stability: 1 - Experimental
 
 * `store` {AsyncLocalStorage} The store to which to bind the event data
-* `transform` {Function} Transform the event data before setting the context
+* `transform` {Function} Transform event data before setting the store context
 
 When [`channel.runStores(data, ...)`][] is called, the given event data will
 be applied to any store bound to the channel. If the store has already been
@@ -757,7 +757,7 @@ added:
 > Stability: 1 - Experimental
 
 * `fn` {Function} Function to wrap a trace around
-* `data` {Object} Shared context object to correlate trace events through
+* `data` {Object} Shared object to correlate trace events through
 * `thisArg` {any} The receiver to be used for the function call
 * `...args` {any} Optional arguments to pass to the function
 * Returns: {any} The return value of the given function
@@ -775,7 +775,7 @@ const channels = diagnostics_channel.tracingChannel('my-channel');
 channels.traceSync(() => {
   // Do something
 }, {
-  context: 'something',
+  some: 'thing',
 });
 ```
 
@@ -787,7 +787,7 @@ const channels = diagnostics_channel.tracingChannel('my-channel');
 channels.traceSync(() => {
   // Do something
 }, {
-  context: 'something',
+  some: 'thing',
 });
 ```
 
@@ -801,7 +801,7 @@ added:
 > Stability: 1 - Experimental
 
 * `fn` {Function} Promise-returning function to wrap a trace around
-* `data` {Object} Shared context object to correlate trace events through
+* `data` {Object} Shared object to correlate trace events through
 * `thisArg` {any} The receiver to be used for the function call
 * `...args` {any} Optional arguments to pass to the function
 * Returns: {Promise} Promise returned by the given function
@@ -820,7 +820,7 @@ const channels = diagnostics_channel.tracingChannel('my-channel');
 channels.tracePromise(async () => {
   // Do something
 }, {
-  context: 'something',
+  some: 'thing',
 });
 ```
 
@@ -832,7 +832,7 @@ const channels = diagnostics_channel.tracingChannel('my-channel');
 channels.tracePromise(async () => {
   // Do something
 }, {
-  context: 'something',
+  some: 'thing',
 });
 ```
 
@@ -847,7 +847,7 @@ added:
 
 * `fn` {Function} callback using function to wrap a trace around
 * `position` {number} Zero-indexed argument position of expected callback
-* `data` {Object} Shared context object to correlate trace events through
+* `data` {Object} Shared object to correlate trace events through
 * `thisArg` {any} The receiver to be used for the function call
 * `...args` {any} Optional arguments to pass to the function
 * Returns: {any} The return value of the given function
@@ -867,7 +867,7 @@ channels.traceCallback((arg1, callback) => {
   // Do something
   callback(null, 'result');
 }, 1, {
-  context: 'something',
+  some: 'thing',
 }, thisArg, arg1, callback);
 ```
 
@@ -880,7 +880,7 @@ channels.traceCallback((arg1, callback) => {
   // Do something
   callback(null, 'result');
 }, {
-  context: 'something',
+  some: 'thing',
 }, thisArg, arg1, callback);
 ```
 
@@ -940,8 +940,8 @@ function being reached. At this point things like callback arguments may be
 available, or anything else expressing the "result" of the action.
 
 For callbacks-based functions, the first argument of the callback will be
-assigned to the `error` field, if not `undefined` or `null`, and the second argument will
-be assigned to the `result` field.
+assigned to the `error` field, if not `undefined` or `null`, and the second
+argument will be assigned to the `result` field.
 
 For promises, the argument to the `resolve` path will be assigned to `result`
 or the argument to the `reject` path will be assign to `error`.
