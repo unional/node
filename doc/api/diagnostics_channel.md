@@ -483,8 +483,8 @@ const store = new AsyncLocalStorage();
 
 const channel = diagnostics_channel.channel('my-channel');
 
-channel.bindStore(store, (message) => {
-  return { message };
+channel.bindStore(store, (data) => {
+  return { data };
 });
 ```
 
@@ -496,8 +496,8 @@ const store = new AsyncLocalStorage();
 
 const channel = diagnostics_channel.channel('my-channel');
 
-channel.bindStore(store, (message) => {
-  return { message };
+channel.bindStore(store, (data) => {
+  return { data };
 });
 ```
 
@@ -747,7 +747,7 @@ channels.unsubscribe({
 });
 ```
 
-#### `tracingChannel.traceSync(fn[, ctx[, thisArg, [, ...args]]])`
+#### `tracingChannel.traceSync(fn[, data[, thisArg[, ...args]]])`
 
 <!-- YAML
 added:
@@ -757,7 +757,7 @@ added:
 > Stability: 1 - Experimental
 
 * `fn` {Function} Function to wrap a trace around
-* `ctx` {Object} Shared context object to correlate trace events through
+* `data` {Object} Shared context object to correlate trace events through
 * `thisArg` {any} The receiver to be used for the function call
 * `...args` {any} Optional arguments to pass to the function
 * Returns: {any} The return value of the given function
@@ -791,7 +791,7 @@ channels.traceSync(() => {
 });
 ```
 
-#### `tracingChannel.tracePromise(fn[, ctx[, thisArg, [, ...args]]])`
+#### `tracingChannel.tracePromise(fn[, data[, thisArg[, ...args]]])`
 
 <!-- YAML
 added:
@@ -801,7 +801,7 @@ added:
 > Stability: 1 - Experimental
 
 * `fn` {Function} Promise-returning function to wrap a trace around
-* `ctx` {Object} Shared context object to correlate trace events through
+* `data` {Object} Shared context object to correlate trace events through
 * `thisArg` {any} The receiver to be used for the function call
 * `...args` {any} Optional arguments to pass to the function
 * Returns: {Promise} Promise returned by the given function
@@ -836,7 +836,7 @@ channels.tracePromise(async () => {
 });
 ```
 
-#### `tracingChannel.traceCallback(fn[, position[, ctx[, thisArg, [, ...args]]]])`
+#### `tracingChannel.traceCallback(fn[, position[, data[, thisArg[, ...args]]]])`
 
 <!-- YAML
 added:
@@ -845,14 +845,14 @@ added:
 
 > Stability: 1 - Experimental
 
-* `fn` {Function} Promise-returning function to wrap a trace around
+* `fn` {Function} callback using function to wrap a trace around
 * `position` {number} Zero-indexed argument position of expected callback
-* `ctx` {Object} Shared context object to correlate trace events through
+* `data` {Object} Shared context object to correlate trace events through
 * `thisArg` {any} The receiver to be used for the function call
 * `...args` {any} Optional arguments to pass to the function
-* Returns: {Promise} Promise returned by the given function
+* Returns: {any} The return value of the given function
 
-Trace a promise-returning function call. This will always produce `start`,
+Trace a callback-receiving function call. This will always produce `start`,
 `end`, `asyncStart`, and `asyncEnd` events around the execution and may also
 produce an `error` event if the given function throws an error or the returned
 promise rejects. This will run the given function using
@@ -866,7 +866,7 @@ const channels = diagnostics_channel.tracingChannel('my-channel');
 channels.traceCallback((arg1, callback) => {
   // Do something
   callback(null, 'result');
-}, {
+}, 1, {
   context: 'something',
 }, thisArg, arg1, callback);
 ```
@@ -940,7 +940,7 @@ function being reached. At this point things like callback arguments may be
 available, or anything else expressing the "result" of the action.
 
 For callbacks-based functions, the first argument of the callback will be
-assigned to the `error` field, if not undefined, and the second argument will
+assigned to the `error` field, if not `undefined` or `null`, and the second argument will
 be assigned to the `result` field.
 
 For promises, the argument to the `resolve` path will be assigned to `result`
