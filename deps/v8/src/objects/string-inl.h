@@ -18,6 +18,7 @@
 #include "src/sandbox/external-pointer-inl.h"
 #include "src/sandbox/external-pointer.h"
 #include "src/strings/string-hasher-inl.h"
+#include "src/strings/unicode-inl.h"
 #include "src/utils/utils.h"
 
 // Has to be the last include (doesn't have include guards):
@@ -956,6 +957,21 @@ ConsString String::VisitFlat(
   }
 }
 
+bool String::IsWellFormedUnicode(Isolate* isolate, Handle<String> string) {
+  // One-byte strings are definitionally well formed and cannot have unpaired
+  // surrogates.
+  if (string->IsOneByteRepresentation()) return true;
+
+  // TODO(v8:13557): The two-byte case can be optimized by extending the
+  // InstanceType. See
+  // https://docs.google.com/document/d/15f-1c_Ysw3lvjy_Gx0SmmD9qeO8UuXuAbWIpWCnTDO8/
+  string = Flatten(isolate, string);
+  DCHECK(string->IsTwoByteRepresentation());
+  DisallowGarbageCollection no_gc;
+  const uint16_t* data = string->template GetChars<uint16_t>(isolate, no_gc);
+  return !unibrow::Utf16::HasUnpairedSurrogate(data, string->length());
+}
+
 template <>
 inline base::Vector<const uint8_t> String::GetCharVector(
     const DisallowGarbageCollection& no_gc) {
@@ -1474,6 +1490,22 @@ SubStringRange::iterator SubStringRange::begin() {
 
 SubStringRange::iterator SubStringRange::end() {
   return SubStringRange::iterator(string_, first_ + length_, no_gc_);
+}
+
+void SeqOneByteString::clear_padding_destructively(int length) {
+  // Ensure we are not killing the map word, which is already set at this point
+  static_assert(SizeFor(0) >= kObjectAlignment + kTaggedSize);
+  memset(
+      reinterpret_cast<void*>(address() + SizeFor(length) - kObjectAlignment),
+      0, kObjectAlignment);
+}
+
+void SeqTwoByteString::clear_padding_destructively(int length) {
+  // Ensure we are not killing the map word, which is already set at this point
+  static_assert(SizeFor(0) >= kObjectAlignment + kTaggedSize);
+  memset(
+      reinterpret_cast<void*>(address() + SizeFor(length) - kObjectAlignment),
+      0, kObjectAlignment);
 }
 
 // static

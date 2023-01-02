@@ -526,6 +526,10 @@ class String : public TorqueGeneratedString<String, Name> {
                           PtrComprCageBase cage_base,
                           const SharedStringAccessGuardIfNeeded&);
 
+  // Returns true if this string has no unpaired surrogates and false otherwise.
+  static inline bool IsWellFormedUnicode(Isolate* isolate,
+                                         Handle<String> string);
+
   static inline bool IsAscii(const char* chars, int length) {
     return IsAscii(reinterpret_cast<const uint8_t*>(chars), length);
   }
@@ -701,14 +705,21 @@ class SeqString : public TorqueGeneratedSeqString<SeqString, String> {
   // Truncate the string in-place if possible and return the result.
   // In case of new_length == 0, the empty string is returned without
   // truncating the original string.
-  V8_WARN_UNUSED_RESULT static Handle<String> Truncate(Handle<SeqString> string,
+  V8_WARN_UNUSED_RESULT static Handle<String> Truncate(Isolate* isolate,
+                                                       Handle<SeqString> string,
                                                        int new_length);
 
   struct DataAndPaddingSizes {
     const int data_size;
     const int padding_size;
+    bool operator==(const DataAndPaddingSizes& other) const {
+      return data_size == other.data_size && padding_size == other.padding_size;
+    }
   };
   DataAndPaddingSizes GetDataAndPaddingSizes() const;
+
+  // Zero out only the padding bytes of this string.
+  void ClearPadding();
 
   TQ_OBJECT_CONSTRUCTORS(SeqString)
 };
@@ -754,6 +765,9 @@ class SeqOneByteString
 
   DataAndPaddingSizes GetDataAndPaddingSizes() const;
 
+  // Initializes padding bytes. Potentially zeros tail of the payload too!
+  inline void clear_padding_destructively(int length);
+
   // Maximal memory usage for a single sequential one-byte string.
   static const int kMaxCharsSize = kMaxLength;
   static const int kMaxSize = OBJECT_POINTER_ALIGN(kMaxCharsSize + kHeaderSize);
@@ -797,6 +811,9 @@ class SeqTwoByteString
       const SharedStringAccessGuardIfNeeded& access_guard) const;
 
   DataAndPaddingSizes GetDataAndPaddingSizes() const;
+
+  // Initializes padding bytes. Potentially zeros tail of the payload too!
+  inline void clear_padding_destructively(int length);
 
   // Maximal memory usage for a single sequential two-byte string.
   static const int kMaxCharsSize = kMaxLength * 2;

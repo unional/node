@@ -20,6 +20,7 @@
 #include "src/diagnostics/basic-block-profiler.h"
 #include "src/execution/isolate-inl.h"
 #include "src/execution/protectors-inl.h"
+#include "src/flags/flags.h"
 #include "src/heap/basic-memory-chunk.h"
 #include "src/heap/heap-allocator-inl.h"
 #include "src/heap/heap-inl.h"
@@ -640,8 +641,8 @@ Handle<PropertyDescriptorObject> Factory::NewPropertyDescriptorObject() {
 Handle<SwissNameDictionary> Factory::CreateCanonicalEmptySwissNameDictionary() {
   // This function is only supposed to be used to create the canonical empty
   // version and should not be used afterwards.
-  DCHECK_EQ(kNullAddress, ReadOnlyRoots(isolate()).at(
-                              RootIndex::kEmptySwissPropertyDictionary));
+  DCHECK(!ReadOnlyRoots(isolate()).is_initialized(
+      RootIndex::kEmptySwissPropertyDictionary));
 
   ReadOnlyRoots roots(isolate());
 
@@ -1038,8 +1039,8 @@ template Handle<ExternalTwoByteString>
 StringTransitionStrategy Factory::ComputeSharingStrategyForString(
     Handle<String> string, MaybeHandle<Map>* shared_map) {
   DCHECK(v8_flags.shared_string_table);
-  // Do not share young strings in-place: there is no shared young space.
-  if (Heap::InYoungGeneration(*string)) {
+  // TODO(pthier): Avoid copying LO-space strings. Update page flags instead.
+  if (!string->InSharedHeap()) {
     return StringTransitionStrategy::kCopy;
   }
   DCHECK_NOT_NULL(shared_map);
@@ -1229,8 +1230,15 @@ Symbol Factory::NewSymbolInternal(AllocationType allocation) {
   int hash = isolate()->GenerateIdentityHash(Name::HashBits::kMax);
   symbol.set_raw_hash_field(
       Name::CreateHashFieldValue(hash, Name::HashFieldType::kHash));
-  symbol.set_description(read_only_roots().undefined_value(),
-                         SKIP_WRITE_BARRIER);
+  if (isolate()->read_only_heap()->roots_init_complete()) {
+    symbol.set_description(read_only_roots().undefined_value(),
+                           SKIP_WRITE_BARRIER);
+  } else {
+    // Can't use setter during bootstrapping as its typecheck tries to access
+    // the roots table before it is initialized.
+    TaggedField<Object>::store(symbol, Symbol::kDescriptionOffset,
+                               read_only_roots().undefined_value());
+  }
   symbol.set_flags(0);
   DCHECK(!symbol.is_private());
   return symbol;
@@ -1537,8 +1545,7 @@ Handle<Script> Factory::CloneScript(Handle<Script> script) {
   scripts = WeakArrayList::AddToEnd(isolate(), scripts,
                                     MaybeObjectHandle::Weak(new_script_handle));
   heap->set_script_list(*scripts);
-  LOG(isolate(),
-      ScriptEvent(V8FileLogger::ScriptEventType::kCreate, script_id));
+  LOG(isolate(), ScriptEvent(ScriptEventType::kCreate, script_id));
   return new_script_handle;
 }
 
@@ -1710,8 +1717,8 @@ Handle<WasmResumeData> Factory::NewWasmResumeData(
 Handle<WasmExportedFunctionData> Factory::NewWasmExportedFunctionData(
     Handle<CodeT> export_wrapper, Handle<WasmInstanceObject> instance,
     Address call_target, Handle<Object> ref, int func_index,
-    const wasm::FunctionSig* sig, int wrapper_budget, Handle<Map> rtt,
-    wasm::Promise promise) {
+    const wasm::FunctionSig* sig, uint32_t canonical_type_index,
+    int wrapper_budget, Handle<Map> rtt, wasm::Promise promise) {
   Handle<WasmInternalFunction> internal =
       NewWasmInternalFunction(call_target, Handle<HeapObject>::cast(ref), rtt);
   Map map = *wasm_exported_function_data_map();
@@ -1725,6 +1732,7 @@ Handle<WasmExportedFunctionData> Factory::NewWasmExportedFunctionData(
   result.set_instance(*instance);
   result.set_function_index(func_index);
   result.init_sig(isolate(), sig);
+  result.set_canonical_type_index(canonical_type_index);
   result.set_wrapper_budget(wrapper_budget);
   // We can't skip the write barrier when V8_EXTERNAL_CODE_SPACE is enabled
   // because in this case the CodeT (CodeDataContainer) objects are not
@@ -2074,16 +2082,14 @@ Map Factory::InitializeMap(Map map, InstanceType type, int instance_size,
   map.set_bit_field3(bit_field3);
   map.set_instance_type(type);
   ReadOnlyRoots ro_roots(roots);
-  HeapObject raw_null_value = ro_roots.null_value();
-  map.set_prototype(raw_null_value, SKIP_WRITE_BARRIER);
-  map.set_constructor_or_back_pointer(raw_null_value, SKIP_WRITE_BARRIER);
+  map.init_prototype_and_constructor_or_back_pointer(ro_roots);
   map.set_instance_size(instance_size);
   if (map.IsJSObjectMap()) {
     DCHECK(!ReadOnlyHeap::Contains(map));
     map.SetInObjectPropertiesStartInWords(instance_size / kTaggedSize -
                                           inobject_properties);
     DCHECK_EQ(map.GetInObjectProperties(), inobject_properties);
-    map.set_prototype_validity_cell(roots->invalid_prototype_validity_cell(),
+    map.set_prototype_validity_cell(ro_roots.invalid_prototype_validity_cell(),
                                     kRelaxedStore);
   } else {
     DCHECK_EQ(inobject_properties, 0);
@@ -2381,9 +2387,13 @@ Handle<FixedDoubleArray> Factory::CopyFixedDoubleArray(
 }
 
 Handle<HeapNumber> Factory::NewHeapNumberForCodeAssembler(double value) {
-  return CanAllocateInReadOnlySpace()
-             ? NewHeapNumber<AllocationType::kReadOnly>(value)
-             : NewHeapNumber<AllocationType::kOld>(value);
+  ReadOnlyRoots roots(isolate());
+  auto num = roots.FindHeapNumber(value);
+  if (!num.is_null()) return num;
+  // Add known HeapNumber constants to the read only roots. This ensures
+  // r/o snapshots to be deterministic.
+  DCHECK(!CanAllocateInReadOnlySpace());
+  return NewHeapNumber<AllocationType::kOld>(value);
 }
 
 Handle<JSObject> Factory::NewError(Handle<JSFunction> constructor,
@@ -3037,9 +3047,13 @@ Handle<JSArrayBuffer> Factory::NewJSArrayBuffer(
     std::shared_ptr<BackingStore> backing_store, AllocationType allocation) {
   Handle<Map> map(isolate()->native_context()->array_buffer_fun().initial_map(),
                   isolate());
+  ResizableFlag resizable_by_js = ResizableFlag::kNotResizable;
+  if (v8_flags.harmony_rab_gsab && backing_store->is_resizable_by_js()) {
+    resizable_by_js = ResizableFlag::kResizable;
+  }
   auto result =
       Handle<JSArrayBuffer>::cast(NewJSObjectFromMap(map, allocation));
-  result->Setup(SharedFlag::kNotShared, ResizableFlag::kNotResizable,
+  result->Setup(SharedFlag::kNotShared, resizable_by_js,
                 std::move(backing_store), isolate());
   return result;
 }
@@ -3047,18 +3061,42 @@ Handle<JSArrayBuffer> Factory::NewJSArrayBuffer(
 MaybeHandle<JSArrayBuffer> Factory::NewJSArrayBufferAndBackingStore(
     size_t byte_length, InitializedFlag initialized,
     AllocationType allocation) {
+  return NewJSArrayBufferAndBackingStore(byte_length, byte_length, initialized,
+                                         ResizableFlag::kNotResizable,
+                                         allocation);
+}
+
+MaybeHandle<JSArrayBuffer> Factory::NewJSArrayBufferAndBackingStore(
+    size_t byte_length, size_t max_byte_length, InitializedFlag initialized,
+    ResizableFlag resizable, AllocationType allocation) {
+  DCHECK_LE(byte_length, max_byte_length);
   std::unique_ptr<BackingStore> backing_store = nullptr;
 
-  if (byte_length > 0) {
-    backing_store = BackingStore::Allocate(isolate(), byte_length,
-                                           SharedFlag::kNotShared, initialized);
+  if (resizable == ResizableFlag::kResizable) {
+    size_t page_size, initial_pages, max_pages;
+    if (JSArrayBuffer::GetResizableBackingStorePageConfiguration(
+            isolate(), byte_length, max_byte_length, kDontThrow, &page_size,
+            &initial_pages, &max_pages)
+            .IsNothing()) {
+      return MaybeHandle<JSArrayBuffer>();
+    }
+
+    backing_store = BackingStore::TryAllocateAndPartiallyCommitMemory(
+        isolate(), byte_length, max_byte_length, page_size, initial_pages,
+        max_pages, WasmMemoryFlag::kNotWasm, SharedFlag::kNotShared);
     if (!backing_store) return MaybeHandle<JSArrayBuffer>();
+  } else {
+    if (byte_length > 0) {
+      backing_store = BackingStore::Allocate(
+          isolate(), byte_length, SharedFlag::kNotShared, initialized);
+      if (!backing_store) return MaybeHandle<JSArrayBuffer>();
+    }
   }
   Handle<Map> map(isolate()->native_context()->array_buffer_fun().initial_map(),
                   isolate());
   auto array_buffer =
       Handle<JSArrayBuffer>::cast(NewJSObjectFromMap(map, allocation));
-  array_buffer->Setup(SharedFlag::kNotShared, ResizableFlag::kNotResizable,
+  array_buffer->Setup(SharedFlag::kNotShared, resizable,
                       std::move(backing_store), isolate());
   return array_buffer;
 }
@@ -3166,21 +3204,41 @@ Handle<JSArrayBufferView> Factory::NewJSArrayBufferView(
 
 Handle<JSTypedArray> Factory::NewJSTypedArray(ExternalArrayType type,
                                               Handle<JSArrayBuffer> buffer,
-                                              size_t byte_offset,
-                                              size_t length) {
+                                              size_t byte_offset, size_t length,
+                                              bool is_length_tracking) {
   size_t element_size;
   ElementsKind elements_kind;
   JSTypedArray::ForFixedTypedArray(type, &element_size, &elements_kind);
+
+  CHECK_IMPLIES(is_length_tracking, v8_flags.harmony_rab_gsab);
+  const bool is_backed_by_rab =
+      buffer->is_resizable_by_js() && !buffer->is_shared();
+
+  Handle<Map> map;
+  if (is_backed_by_rab || is_length_tracking) {
+    map = handle(
+        isolate()->raw_native_context().TypedArrayElementsKindToRabGsabCtorMap(
+            elements_kind),
+        isolate());
+  } else {
+    map =
+        handle(isolate()->raw_native_context().TypedArrayElementsKindToCtorMap(
+                   elements_kind),
+               isolate());
+  }
+
+  if (is_length_tracking) {
+    // Security: enforce the invariant that length-tracking TypedArrays have
+    // their length and byte_length set to 0.
+    length = 0;
+  }
+
   size_t byte_length = length * element_size;
 
   CHECK_LE(length, JSTypedArray::kMaxLength);
   CHECK_EQ(length, byte_length / element_size);
   CHECK_EQ(0, byte_offset % ElementsKindToByteSize(elements_kind));
 
-  Handle<Map> map(
-      isolate()->raw_native_context().TypedArrayElementsKindToCtorMap(
-          elements_kind),
-      isolate());
   Handle<JSTypedArray> typed_array =
       Handle<JSTypedArray>::cast(NewJSArrayBufferView(
           map, empty_byte_array(), buffer, byte_offset, byte_length));
@@ -3188,23 +3246,28 @@ Handle<JSTypedArray> Factory::NewJSTypedArray(ExternalArrayType type,
   DisallowGarbageCollection no_gc;
   raw.set_length(length);
   raw.SetOffHeapDataPtr(isolate(), buffer->backing_store(), byte_offset);
-  raw.set_is_length_tracking(false);
-  raw.set_is_backed_by_rab(!buffer->is_shared() &&
-                           buffer->is_resizable_by_js());
+  raw.set_is_length_tracking(is_length_tracking);
+  raw.set_is_backed_by_rab(is_backed_by_rab);
   return typed_array;
 }
 
 Handle<JSDataView> Factory::NewJSDataView(Handle<JSArrayBuffer> buffer,
                                           size_t byte_offset,
-                                          size_t byte_length) {
+                                          size_t byte_length,
+                                          bool is_length_tracking) {
+  CHECK_IMPLIES(is_length_tracking, v8_flags.harmony_rab_gsab);
+  if (is_length_tracking) {
+    // Security: enforce the invariant that length-tracking DataViews have their
+    // byte_length set to 0.
+    byte_length = 0;
+  }
   Handle<Map> map(isolate()->native_context()->data_view_fun().initial_map(),
                   isolate());
   Handle<JSDataView> obj = Handle<JSDataView>::cast(NewJSArrayBufferView(
       map, empty_fixed_array(), buffer, byte_offset, byte_length));
   obj->set_data_pointer(
       isolate(), static_cast<uint8_t*>(buffer->backing_store()) + byte_offset);
-  // TODO(v8:11111): Support creating length tracking DataViews via the API.
-  obj->set_is_length_tracking(false);
+  obj->set_is_length_tracking(is_length_tracking);
   obj->set_is_backed_by_rab(!buffer->is_shared() &&
                             buffer->is_resizable_by_js());
   return obj;
@@ -3994,18 +4057,24 @@ Handle<JSFunction> Factory::NewFunctionForTesting(Handle<String> name) {
 Handle<JSSharedStruct> Factory::NewJSSharedStruct(
     Handle<JSFunction> constructor) {
   SharedObjectSafePublishGuard publish_guard;
+
+  Handle<Map> instance_map(constructor->initial_map(), isolate());
+  Handle<PropertyArray> property_array;
+  const int num_oob_fields =
+      instance_map->NumberOfFields(ConcurrencyMode::kSynchronous) -
+      instance_map->GetInObjectProperties();
+  if (num_oob_fields > 0) {
+    property_array =
+        NewPropertyArray(num_oob_fields, AllocationType::kSharedOld);
+  }
+
   Handle<JSSharedStruct> instance = Handle<JSSharedStruct>::cast(
       NewJSObject(constructor, AllocationType::kSharedOld));
 
-  Handle<Map> instance_map(instance->map(), isolate());
-  if (instance_map->HasOutOfObjectProperties()) {
-    int num_oob_fields =
-        instance_map->NumberOfFields(ConcurrencyMode::kSynchronous) -
-        instance_map->GetInObjectProperties();
-    Handle<PropertyArray> property_array =
-        NewPropertyArray(num_oob_fields, AllocationType::kSharedOld);
-    instance->SetProperties(*property_array);
-  }
+  // The struct object has not been fully initialized yet. Disallow allocation
+  // from this point on.
+  DisallowGarbageCollection no_gc;
+  if (!property_array.is_null()) instance->SetProperties(*property_array);
 
   return instance;
 }
@@ -4018,6 +4087,10 @@ Handle<JSSharedArray> Factory::NewJSSharedArray(Handle<JSFunction> constructor,
   Handle<JSSharedArray> instance = Handle<JSSharedArray>::cast(
       NewJSObject(constructor, AllocationType::kSharedOld));
   instance->set_elements(*storage);
+  FieldIndex index = FieldIndex::ForDescriptor(
+      constructor->initial_map(),
+      InternalIndex(JSSharedArray::kLengthFieldIndex));
+  instance->FastPropertyAtPut(index, Smi::FromInt(length), SKIP_WRITE_BARRIER);
   return instance;
 }
 

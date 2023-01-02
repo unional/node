@@ -561,6 +561,7 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   inline void SmiTag(Register smi);
 
   inline void SmiToInt32(Register smi);
+  inline void SmiToInt32(Register dst, Register smi);
 
   // Calls Abort(msg) if the condition cond is not satisfied.
   // Use --debug_code to enable.
@@ -576,6 +577,10 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
 
   // Like Assert(), but always enabled.
   void Check(Condition cond, AbortReason reason);
+
+  // Functions performing a check on a known or potential smi. Returns
+  // a condition that is satisfied if the check is successful.
+  Condition CheckSmi(Register src);
 
   inline void Debug(const char* message, uint32_t code, Instr params = BREAK);
 
@@ -785,6 +790,9 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   inline void FN(const REGTYPE REG, const MemOperand& addr);
   LS_MACRO_LIST(DECLARE_FUNCTION)
 #undef DECLARE_FUNCTION
+
+  void Switch(Register scratch, Register value, int case_value_base,
+              Label** labels, int num_labels);
 
   // Push or pop up to 4 registers of the same width to or from the stack.
   //
@@ -1003,6 +1011,7 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   // The return address on the stack is used by frame iteration.
   void StoreReturnAddressAndCall(Register target);
 
+  void BailoutIfDeoptimized();
   void CallForDeoptimization(Builtin target, int deopt_id, Label* exit,
                              DeoptimizeKind kind, Label* ret,
                              Label* jump_deoptimization_entry_label);
@@ -1410,6 +1419,12 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   void StoreTaggedField(const Register& value,
                         const MemOperand& dst_field_operand);
 
+  // For compatibility with platform-independent code.
+  void StoreTaggedField(const MemOperand& dst_field_operand,
+                        const Register& value) {
+    StoreTaggedField(value, dst_field_operand);
+  }
+
   void AtomicStoreTaggedField(const Register& value, const Register& dst_base,
                               const Register& dst_index, const Register& temp);
 
@@ -1796,6 +1811,37 @@ class V8_EXPORT_PRIVATE MacroAssembler : public TurboAssembler {
     PopSizeRegList(regs, kSRegSizeInBits);
   }
 
+  inline void PushAll(RegList registers) {
+    if (registers.Count() % 2 != 0) {
+      DCHECK(!registers.has(xzr));
+      registers.set(xzr);
+    }
+    PushXRegList(registers);
+  }
+  inline void PopAll(RegList registers) {
+    if (registers.Count() % 2 != 0) {
+      DCHECK(!registers.has(xzr));
+      registers.set(xzr);
+    }
+    PopXRegList(registers);
+  }
+  inline void PushAll(DoubleRegList registers,
+                      int stack_slot_size = kDoubleSize) {
+    if (registers.Count() % 2 != 0) {
+      DCHECK(!registers.has(fp_zero));
+      registers.set(fp_zero);
+    }
+    PushDRegList(registers);
+  }
+  inline void PopAll(DoubleRegList registers,
+                     int stack_slot_size = kDoubleSize) {
+    if (registers.Count() % 2 != 0) {
+      DCHECK(!registers.has(fp_zero));
+      registers.set(fp_zero);
+    }
+    PopDRegList(registers);
+  }
+
   // Push the specified register 'count' times.
   void PushMultipleTimes(CPURegister src, Register count);
 
@@ -1871,47 +1917,47 @@ class V8_EXPORT_PRIVATE MacroAssembler : public TurboAssembler {
                     AbortReason reason = AbortReason::kOperandIsASmi)
       NOOP_UNLESS_DEBUG_CODE
 
-  // Abort execution if argument is not a CodeT, enabled via --debug-code.
-  void AssertCodeT(Register object) NOOP_UNLESS_DEBUG_CODE
+      // Abort execution if argument is not a CodeT, enabled via --debug-code.
+      void AssertCodeT(Register object) NOOP_UNLESS_DEBUG_CODE
 
-  // Abort execution if argument is not a Constructor, enabled via --debug-code.
-  void AssertConstructor(Register object) NOOP_UNLESS_DEBUG_CODE
+      // Abort execution if argument is not a Constructor, enabled via
+      // --debug-code.
+      void AssertConstructor(Register object) NOOP_UNLESS_DEBUG_CODE
 
-  // Abort execution if argument is not a JSFunction, enabled via --debug-code.
-  void AssertFunction(Register object) NOOP_UNLESS_DEBUG_CODE
+      // Abort execution if argument is not a JSFunction, enabled via
+      // --debug-code.
+      void AssertFunction(Register object) NOOP_UNLESS_DEBUG_CODE
 
-  // Abort execution if argument is not a callable JSFunction, enabled via
-  // --debug-code.
-  void AssertCallableFunction(Register object) NOOP_UNLESS_DEBUG_CODE
+      // Abort execution if argument is not a callable JSFunction, enabled via
+      // --debug-code.
+      void AssertCallableFunction(Register object) NOOP_UNLESS_DEBUG_CODE
 
-  // Abort execution if argument is not a JSGeneratorObject (or subclass),
-  // enabled via --debug-code.
-  void AssertGeneratorObject(Register object) NOOP_UNLESS_DEBUG_CODE
+      // Abort execution if argument is not a JSGeneratorObject (or subclass),
+      // enabled via --debug-code.
+      void AssertGeneratorObject(Register object) NOOP_UNLESS_DEBUG_CODE
 
-  // Abort execution if argument is not a JSBoundFunction,
-  // enabled via --debug-code.
-  void AssertBoundFunction(Register object) NOOP_UNLESS_DEBUG_CODE
+      // Abort execution if argument is not a JSBoundFunction,
+      // enabled via --debug-code.
+      void AssertBoundFunction(Register object) NOOP_UNLESS_DEBUG_CODE
 
-  // Abort execution if argument is not undefined or an AllocationSite, enabled
-  // via --debug-code.
-  void AssertUndefinedOrAllocationSite(Register object) NOOP_UNLESS_DEBUG_CODE
+      // Abort execution if argument is not undefined or an AllocationSite,
+      // enabled via --debug-code.
+      void AssertUndefinedOrAllocationSite(Register object)
+          NOOP_UNLESS_DEBUG_CODE
 
-  // ---- Calling / Jumping helpers ----
+      // ---- Calling / Jumping helpers ----
 
-  void CallRuntime(const Runtime::Function* f, int num_arguments,
-                   SaveFPRegsMode save_doubles = SaveFPRegsMode::kIgnore);
+      void CallRuntime(const Runtime::Function* f, int num_arguments);
 
   // Convenience function: Same as above, but takes the fid instead.
-  void CallRuntime(Runtime::FunctionId fid, int num_arguments,
-                   SaveFPRegsMode save_doubles = SaveFPRegsMode::kIgnore) {
-    CallRuntime(Runtime::FunctionForId(fid), num_arguments, save_doubles);
+  void CallRuntime(Runtime::FunctionId fid, int num_arguments) {
+    CallRuntime(Runtime::FunctionForId(fid), num_arguments);
   }
 
   // Convenience function: Same as above, but takes the fid instead.
-  void CallRuntime(Runtime::FunctionId fid,
-                   SaveFPRegsMode save_doubles = SaveFPRegsMode::kIgnore) {
+  void CallRuntime(Runtime::FunctionId fid) {
     const Runtime::Function* function = Runtime::FunctionForId(fid);
-    CallRuntime(function, function->nargs, save_doubles);
+    CallRuntime(function, function->nargs);
   }
 
   void TailCallRuntime(Runtime::FunctionId fid);
@@ -1963,6 +2009,11 @@ class V8_EXPORT_PRIVATE MacroAssembler : public TurboAssembler {
   // other registers.
   void CompareObjectType(Register heap_object, Register map, Register type_reg,
                          InstanceType type);
+  // A version of CompareObjectType which does not set the {type_reg} and has
+  // the same signatureas the x64 version of CmpObjectType.
+  void CmpObjectType(Register heap_object, InstanceType type, Register map) {
+    CompareObjectType(heap_object, map, xzr, type);
+  }
 
   // Compare object type for heap object, and branch if equal (or not.)
   // heap_object contains a non-Smi whose object type should be compared with
@@ -2009,9 +2060,6 @@ class V8_EXPORT_PRIVATE MacroAssembler : public TurboAssembler {
   // ---------------------------------------------------------------------------
   // Frames.
 
-  void ExitFramePreserveFPRegs();
-  void ExitFrameRestoreFPRegs();
-
   // Enter exit frame. Exit frames are used when calling C code from generated
   // (JavaScript) code.
   //
@@ -2034,19 +2082,16 @@ class V8_EXPORT_PRIVATE MacroAssembler : public TurboAssembler {
   //
   // This function also stores the new frame information in the top frame, so
   // that the new frame becomes the current frame.
-  void EnterExitFrame(bool save_doubles, const Register& scratch,
-                      int extra_space = 0,
-                      StackFrame::Type frame_type = StackFrame::EXIT);
+  void EnterExitFrame(const Register& scratch, int extra_space,
+                      StackFrame::Type frame_type);
 
   // Leave the current exit frame, after a C function has returned to generated
   // (JavaScript) code.
   //
   // This effectively unwinds the operation of EnterExitFrame:
-  //  * Preserved doubles are restored (if restore_doubles is true).
   //  * The frame information is removed from the top frame.
   //  * The exit frame is dropped.
-  void LeaveExitFrame(bool save_doubles, const Register& scratch,
-                      const Register& scratch2);
+  void LeaveExitFrame(const Register& scratch, const Register& scratch2);
 
   // Load the global proxy from the current context.
   void LoadGlobalProxy(Register dst);
